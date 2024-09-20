@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -13,12 +14,40 @@ import (
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/go-rod/rod/lib/proto"
 	"github.com/go-rod/rod/lib/utils"
+	"github.com/signintech/gopdf"
 )
 
 type Slide struct {
 	Link string `json:"link"`
 	Zoom string `json:"zoom"`
 	Name string `json:"name"`
+}
+
+func GetFolderDate() string {
+	// Use layout string for time format.
+	const layout = "01-02-2006"
+	// Place now in the string.
+	t := time.Now()
+	return t.Format(layout)
+}
+
+func makeDirectoryIfNotExists(path string) error {
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return os.Mkdir(path, os.ModeDir|0755)
+	}
+	return nil
+}
+
+func GeneratePdf(path string, images []string) {
+
+	pdf := gopdf.GoPdf{}
+	pdf.Start(gopdf.Config{PageSize: *gopdf.PageSizeA4})
+
+	for _, image := range images {
+		pdf.AddPage()
+		pdf.Image(image, 0, 0, nil)
+	}
+	pdf.WritePdf(filepath.Join(path, "report.pdf"))
 }
 
 func takeScreenshot(slide *Slide, browser *rod.Browser) {
@@ -41,10 +70,11 @@ func takeScreenshot(slide *Slide, browser *rod.Browser) {
 
 	utils.Dump(e.Response.Status, e.Response.URL, e.Response.Headers)
 	log.Printf("response status: %v url: %v", e.Response.Status, e.Response.URL)
-	page.MustScreenshotFullPage(slide.Name + ".png")
+	page.MustScreenshotFullPage(filepath.Join(GetFolderDate(), slide.Name+".png"))
 }
 
 func main() {
+	configPath := flag.String("conf", "conf.json", "config path")
 	flag.Parse()
 	if path, exists := launcher.LookPath(); exists {
 		log.Printf("using browser found at: %v", path)
@@ -57,7 +87,7 @@ func main() {
 		u := launcher.New().Bin(path).Leakless(false).Headless(true).MustLaunch()
 		browser := rod.New().ControlURL(u).MustConnect()
 		defer browser.Close()
-		content, err := os.ReadFile("conf.json")
+		content, err := os.ReadFile(*configPath)
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -65,9 +95,15 @@ func main() {
 		if err := json.Unmarshal(content, &slides); err != nil {
 			log.Fatal(err)
 		}
+		err = makeDirectoryIfNotExists(GetFolderDate())
+		if err != nil {
+			log.Fatal(err)
+		}
+		var images []string
 		for _, slide := range slides {
 			takeScreenshot(&slide, browser)
+			images = append(images, filepath.Join(GetFolderDate(), slide.Name+".png"))
 		}
-
+		GeneratePdf(GetFolderDate(), images)
 	}
 }

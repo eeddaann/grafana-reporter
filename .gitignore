@@ -1,3 +1,4 @@
 main.exe
-*.json
 *.png
+*.pdf
+vendor/*
